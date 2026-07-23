@@ -1,0 +1,12 @@
+[Unit]
+Description=Sync NOOP wellness metrics to Intervals.icu
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/noop-intervals-bridge.env
+ExecStart=/usr/bin/python3 /opt/noop-intervals-bridge/noop_intervals_bridge.py --live
+User=root
+Group=root
+UMask=0077
+PrivateTmp=true
+NoNewPrivileges=true
