@@ -2,72 +2,56 @@
 
 A small, dependency-free bridge from [NOOP](https://github.com/ryanbr/noop) to [Intervals.icu](https://intervals.icu).
 
-NOOP provides built-in backup functionality that creates `.noopbak` files.
+This bridge reads NOOP's WHOOP-format `noop-export-*.zip` files and uses the Intervals.icu API to upload NOOP-computed sleep duration, RMSSD HRV, and resting heart rate as wellness data.
 
-This bridge reads those backups and uses the Intervals.icu API to upload NOOP-computed sleep duration, RMSSD HRV, and resting heart rate as wellness data.
+```mermaid
+flowchart LR
+    A[NOOP app] -->|WHOOP-format ZIP export| B[External storage]
+    B -->|filesystem event| C[Bridge script]
+    C -->|wellness API| D[Intervals.icu]
+```
+
+The initial version read NOOP's `.noopbak` backups. It moved to the WHOOP-format CSV export because the backups grew continuously and were unnecessarily large for transferring three daily wellness metrics.
 
 ## Requirements
 
 - Python 3.10 or newer
-- A directory containing NOOP `.noopbak` files
+- A directory containing NOOP `noop-export-*.zip` files
 - An [Intervals.icu API key](https://intervals.icu/settings)
 
-## Usage
+## How It Works
 
-Copy `.env.example` to a protected environment file and set the backup directory, first export date, and API key. Keep it readable only by the service account:
+1. NOOP saves a WHOOP-format ZIP export to local storage.
+2. A sync tool such as Nextcloud copies the ZIP to the directory watched by the bridge.
+3. The systemd path unit notices the directory change and starts the bridge.
+4. The bridge reads `physiological_cycles.csv` and sends changed sleep, HRV, and resting heart-rate values to Intervals.icu.
+5. Successfully processed days are stored in a local state file, so unchanged data is not sent again.
+
+The bridge scans every export from `NOOP_START_DATE`, which also backfills previously missed days. If `NOOP_DELETE_EXPORT=true`, it deletes the ZIP only after all API writes succeed.
+
+## Configuration
+
+Copy `.env.example` and set:
 
 ```ini
-NOOP_BACKUP_DIR=/path/to/noop/backups
+NOOP_EXPORT_DIR=/path/to/noop/exports
 NOOP_STATE_FILE=/var/lib/noop-intervals-bridge/state.json
-NOOP_START_DATE=2026-01-01
+NOOP_START_DATE=2026-07-11
+NOOP_DELETE_EXPORT=false
 INTERVALS_API_KEY=your-api-key
 ```
 
-Load the environment and inspect the pending updates without writing:
+Run without `--live` to preview changes, or add it to write to Intervals.icu:
 
 ```bash
 set -a
 . ./.env
 set +a
 python3 noop_intervals_bridge.py
-```
-
-Add `--live` only after reviewing the dry-run:
-
-```bash
 python3 noop_intervals_bridge.py --live
 ```
 
-The bridge uses Intervals.icu athlete ID `0`, which officially refers to the athlete associated with the API key.
-
-The bridge validates the ZIP and SQLite database, selects only NOOP-computed values, and stores hashes after successful writes.
-
-Repeated runs skip unchanged days.
-
-If a previously exported value disappears, it is cleared in Intervals.icu with `-1`.
-
-## Daily Service
-
-Example systemd units are provided in `systemd/` for running the bridge every day at 10:00 in the server's local timezone.
-
-Review the paths and service user, then install and enable them:
-
-```bash
-sudo install -d /opt/noop-intervals-bridge
-sudo install -m 0755 noop_intervals_bridge.py /opt/noop-intervals-bridge/
-sudo install -m 0600 .env /etc/noop-intervals-bridge.env
-sudo install -m 0644 systemd/noop-intervals-bridge.service systemd/noop-intervals-bridge.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now noop-intervals-bridge.timer
-```
-
-Verify the schedule or trigger a run manually:
-
-```bash
-systemctl list-timers noop-intervals-bridge.timer
-sudo systemctl start noop-intervals-bridge.service
-sudo journalctl -u noop-intervals-bridge.service -n 50 --no-pager
-```
+For automatic processing, the bridge can run as a systemd path-triggered service using the included unit templates in `systemd/`.
 
 ## Tests
 

@@ -1,9 +1,5 @@
 .env
 .env.*
 !.env.example
-*.noopbak
-*.sqlite
-*.sqlite-shm
-*.sqlite-wal
 state.json
 __pycache__/
